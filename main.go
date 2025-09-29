@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
+	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 	gnet "github.com/shirou/gopsutil/v4/net"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 type StatusLevel string
@@ -37,6 +40,10 @@ type CheckResult struct {
 
 type HealthReport struct {
 	Hostname      string        `json:"hostname"`
+	OS            string        `json:"os"`
+	Platform      string        `json:"platform"`
+	PlatformVer   string        `json:"platform_version"`
+	Kernel        string        `json:"kernel"`
 	OverallStatus StatusLevel   `json:"overall_status"`
 	UptimeSeconds uint64        `json:"uptime_seconds"`
 	Checks        []CheckResult `json:"checks"`
@@ -61,19 +68,16 @@ func worst(a, b StatusLevel) StatusLevel {
 }
 
 func main() {
-	// initial collection
 	refreshChecks()
 
-	// periodic refresh
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			refreshChecks()
 		}
 	}()
 
-	// HTTP server
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		stateLock.RLock()
 		defer stateLock.RUnlock()
@@ -91,6 +95,7 @@ func refreshChecks() {
 
 	hostname, _ := os.Hostname()
 	uptime, _ := host.Uptime()
+	info, _ := host.Info()
 
 	checks = append(checks, checkCPU())
 	checks = append(checks, checkMemory())
@@ -99,6 +104,8 @@ func refreshChecks() {
 	checks = append(checks, checkSmart())
 	checks = append(checks, checkMdRaid())
 	checks = append(checks, checkIPMI())
+	checks = append(checks, checkLoad())
+	checks = append(checks, checkProcesses())
 
 	overall := Healthy
 	for _, c := range checks {
@@ -107,6 +114,10 @@ func refreshChecks() {
 
 	report := HealthReport{
 		Hostname:      hostname,
+		OS:            runtime.GOOS,
+		Platform:      info.Platform,
+		PlatformVer:   info.PlatformVersion,
+		Kernel:        info.KernelVersion,
 		OverallStatus: overall,
 		UptimeSeconds: uptime,
 		Checks:        checks,
@@ -167,33 +178,30 @@ func checkDisks() CheckResult {
 }
 
 func checkNetwork() CheckResult {
-    ifaces, _ := gnet.Interfaces()
-    problems := []string{}
+	ifaces, _ := gnet.Interfaces()
+	problems := []string{}
 
-    for _, iface := range ifaces {
-        if iface.Name == "lo" {
-            continue
-        }
+	for _, iface := range ifaces {
+		if iface.Name == "lo" {
+			continue
+		}
+		up := false
+		for _, f := range iface.Flags {
+			if strings.ToLower(f) == "up" {
+				up = true
+				break
+			}
+		}
+		if !up {
+			problems = append(problems, fmt.Sprintf("%s is down", iface.Name))
+		}
+	}
 
-        up := false
-        for _, f := range iface.Flags {
-            if strings.ToLower(f) == "up" {
-                up = true
-                break
-            }
-        }
-
-        if !up {
-            problems = append(problems, fmt.Sprintf("%s is down", iface.Name))
-        }
-    }
-
-    if len(problems) == 0 {
-        return CheckResult{"network", Healthy, "all interfaces OK", nil}
-    }
-    return CheckResult{"network", Warning, "issues: " + strings.Join(problems, "; "), nil}
+	if len(problems) == 0 {
+		return CheckResult{"network", Healthy, "all interfaces OK", nil}
+	}
+	return CheckResult{"network", Warning, "issues: " + strings.Join(problems, "; "), nil}
 }
-
 
 func checkSmart() CheckResult {
 	if _, err := exec.LookPath("smartctl"); err != nil {
@@ -260,6 +268,31 @@ func checkIPMI() CheckResult {
 	return CheckResult{"ipmi", Healthy, "IPMI sensors OK", nil}
 }
 
+func checkLoad() CheckResult {
+	avg, err := load.Avg()
+	if err != nil {
+		return CheckResult{"load", Unknown, "load average unavailable", nil}
+	}
+	msg := fmt.Sprintf("1m=%.2f 5m=%.2f 15m=%.2f", avg.Load1, avg.Load5, avg.Load15)
+	if avg.Load1 > 8 {
+		return CheckResult{"load", Warning, msg, avg}
+	}
+	return CheckResult{"load", Healthy, msg, avg}
+}
+
+func checkProcesses() CheckResult {
+	procs, err := process.Processes()
+	if err != nil {
+		return CheckResult{"processes", Unknown, "unable to list processes", nil}
+	}
+	count := len(procs)
+	msg := fmt.Sprintf("%d processes", count)
+	if count > 2000 {
+		return CheckResult{"processes", Warning, msg, count}
+	}
+	return CheckResult{"processes", Healthy, msg, count}
+}
+
 // Utility: get IP for logging
 func getLocalIP() string {
 	addrs, err := net.InterfaceAddrs()
@@ -273,3 +306,4 @@ func getLocalIP() string {
 	}
 	return "127.0.0.1"
 }
+
