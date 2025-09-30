@@ -27,6 +27,21 @@ import (
 	"github.com/shirou/gopsutil/v4/process"
 )
 
+func enableCORS(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		next(w, r)
+	}
+}
+
 type StatusLevel string
 
 const (
@@ -82,6 +97,34 @@ func worst(a, b StatusLevel) StatusLevel {
 	return Unknown
 }
 
+func expandCIDR(cidr string) ([]string, error) {
+    ip, ipnet, err := net.ParseCIDR(cidr)
+    if err != nil {
+        return nil, err
+    }
+
+    var ips []string
+    for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
+        ips = append(ips, ip.String())
+    }
+
+    // remove network and broadcast addresses
+    if len(ips) > 2 {
+        return ips[1 : len(ips)-1], nil
+    }
+    return ips, nil
+}
+
+// incIP increments an IP address (used for iteration)
+func incIP(ip net.IP) {
+    for j := len(ip) - 1; j >= 0; j-- {
+        ip[j]++
+        if ip[j] > 0 {
+            break
+        }
+    }
+}
+
 func main() {
 	refreshChecks()
 
@@ -93,14 +136,14 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/metrics", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		stateLock.RLock()
 		defer stateLock.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(state)
-	})
+	}))
 
-	http.HandleFunc("/snmp_scan", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/snmp_scan", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		subnet := r.URL.Query().Get("subnet")
 		if subnet == "" {
 			http.Error(w, "missing subnet parameter", http.StatusBadRequest)
@@ -139,9 +182,9 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
-	http.HandleFunc("/nmap_scan", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/nmap_scan", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		subnet := r.URL.Query().Get("subnet")
 		if subnet == "" {
 			http.Error(w, "missing subnet parameter", http.StatusBadRequest)
@@ -149,7 +192,7 @@ func main() {
 		}
 		ports := r.URL.Query().Get("ports")
 		if ports == "" {
-			ports = "22,80,443" // default
+			ports = "22,80,443"
 		}
 		timeout := 60 * time.Second
 		if v := r.URL.Query().Get("timeout"); v != "" {
@@ -173,14 +216,72 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
+	// discover_agents?subnet=192.168.2.0/24&port=8080
+	http.HandleFunc("/discover_agents", enableCORS(func(w http.ResponseWriter, r *http.Request) {
+		subnet := r.URL.Query().Get("subnet")
+		if subnet == "" {
+			http.Error(w, "missing subnet param", http.StatusBadRequest)
+			return
+		}
+		port := r.URL.Query().Get("port")
+		if port == "" {
+			port = "8080"
+		}
+
+		ips, err := expandCIDR(subnet)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		type Device struct {
+			IP   string      `json:"ip"`
+			Data interface{} `json:"data,omitempty"`
+			Err  string      `json:"error,omitempty"`
+		}
+
+		results := []Device{}
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		for _, ip := range ips {
+			wg.Add(1)
+			go func(ip string) {
+				defer wg.Done()
+				url := fmt.Sprintf("http://%s:%s/metrics", ip, port)
+				client := http.Client{ Timeout: 2 * time.Second }
+				resp, err := client.Get(url)
+				if err != nil {
+					mu.Lock()
+					results = append(results, Device{IP: ip, Err: err.Error()})
+					mu.Unlock()
+					return
+				}
+				defer resp.Body.Close()
+				body, _ := ioutil.ReadAll(resp.Body)
+				var data interface{}
+				json.Unmarshal(body, &data)
+
+				mu.Lock()
+				results = append(results, Device{IP: ip, Data: data})
+				mu.Unlock()
+			}(ip)
+		}
+
+		wg.Wait()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"devices": results,
+		})
+	}))
 
 
 	addr := ":8080"
 	fmt.Println("NMS Agent running at http://" + getLocalIP() + addr + "/metrics")
 	fmt.Println("SNMP scan endpoint: http://" + getLocalIP() + addr + "/snmp_scan?subnet=YOUR_SUBNET")
-	fmt.Println("NMAP scan endpoint: http://" + getLocalIP() + addr + "/nmap_scan?subnet=YOUR_SUBNET&ports=22,80,443&timeout=YOUR_TIME : just an example")
+	fmt.Println("NMAP scan endpoint: http://" + getLocalIP() + addr + "/nmap_scan?subnet=YOUR_SUBNET&ports=22,80,443&timeout=YOUR_TIME")
 	http.ListenAndServe(addr, nil)
 }
 
