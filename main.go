@@ -204,50 +204,78 @@ func checkNetwork() CheckResult {
 }
 
 func checkSmart() CheckResult {
-	if _, err := exec.LookPath("smartctl"); err != nil {
-		return CheckResult{"smartctl", Unknown, "smartctl not installed", nil}
-	}
-	out, err := exec.Command("smartctl", "--scan").Output()
-	if err != nil {
-		return CheckResult{"smartctl", Unknown, "failed smartctl --scan", nil}
-	}
-	lines := strings.Split(string(out), "\n")
-	var criticals, warnings []string
-	for _, l := range lines {
-		if strings.TrimSpace(l) == "" {
-			continue
-		}
-		dev := strings.Fields(l)[0]
-		cmd := exec.Command("smartctl", "-H", dev)
-		o, _ := cmd.Output()
-		s := string(o)
-		if strings.Contains(s, "PASSED") {
-			continue
-		} else if strings.Contains(s, "FAILED") {
-			criticals = append(criticals, dev+" FAILED")
-		} else {
-			warnings = append(warnings, dev+" unknown state")
-		}
-	}
-	if len(criticals) > 0 {
-		return CheckResult{"smart", Critical, "SMART critical: " + strings.Join(criticals, "; "), nil}
-	}
-	if len(warnings) > 0 {
-		return CheckResult{"smart", Warning, "SMART warnings: " + strings.Join(warnings, "; "), nil}
-	}
-	return CheckResult{"smart", Healthy, "all disks SMART OK", nil}
+    if runtime.GOOS == "windows" {
+        out, err := exec.Command("wmic", "diskdrive", "get", "status,model").Output()
+        if err != nil {
+            return CheckResult{"smartctl", Unknown, "failed to query SMART status using WMIC", nil}
+        }
+
+        output := string(out)
+        if strings.Contains(output, "OK") {
+            return CheckResult{"smart", Healthy, "SMART status OK", nil}
+        }
+        return CheckResult{"smart", Critical, "SMART status indicates an issue", nil}
+    }
+
+    // Linux-specific smartctl check (already implemented)
+    if _, err := exec.LookPath("smartctl"); err != nil {
+        return CheckResult{"smartctl", Unknown, "smartctl not installed", nil}
+    }
+    out, err := exec.Command("smartctl", "--scan").Output()
+    if err != nil {
+        return CheckResult{"smartctl", Unknown, "failed smartctl --scan", nil}
+    }
+    lines := strings.Split(string(out), "\n")
+    var criticals, warnings []string
+    for _, l := range lines {
+        if strings.TrimSpace(l) == "" {
+            continue
+        }
+        dev := strings.Fields(l)[0]
+        cmd := exec.Command("smartctl", "-H", dev)
+        o, _ := cmd.Output()
+        s := string(o)
+        if strings.Contains(s, "PASSED") {
+            continue
+        } else if strings.Contains(s, "FAILED") {
+            criticals = append(criticals, dev+" FAILED")
+        } else {
+            warnings = append(warnings, dev+" unknown state")
+        }
+    }
+    if len(criticals) > 0 {
+        return CheckResult{"smart", Critical, "SMART critical: " + strings.Join(criticals, "; "), nil}
+    }
+    if len(warnings) > 0 {
+        return CheckResult{"smart", Warning, "SMART warnings: " + strings.Join(warnings, "; "), nil}
+    }
+    return CheckResult{"smart", Healthy, "all disks SMART OK", nil}
 }
 
 func checkMdRaid() CheckResult {
-	data, err := ioutil.ReadFile("/proc/mdstat")
-	if err != nil || len(data) == 0 {
-		return CheckResult{"md_raid", Unknown, "mdstat not available", nil}
-	}
-	s := string(data)
-	if strings.Contains(s, "degraded") || strings.Contains(s, "inactive") {
-		return CheckResult{"md_raid", Critical, "md RAID degraded/inactive", nil}
-	}
-	return CheckResult{"md_raid", Healthy, "software RAID OK", nil}
+    if runtime.GOOS == "windows" {
+        out, err := exec.Command("wmic", "logicaldisk", "get", "status,deviceid").Output()
+        if err != nil {
+            return CheckResult{"md_raid", Unknown, "failed to query RAID status using WMIC", nil}
+        }
+
+        output := string(out)
+        if strings.Contains(output, "OK") {
+            return CheckResult{"md_raid", Healthy, "RAID status OK", nil}
+        }
+        return CheckResult{"md_raid", Critical, "RAID status indicates an issue", nil}
+    }
+
+    // Linux-specific mdstat check (already implemented)
+    data, err := ioutil.ReadFile("/proc/mdstat")
+    if err != nil || len(data) == 0 {
+        return CheckResult{"md_raid", Unknown, "mdstat not available", nil}
+    }
+    s := string(data)
+    if strings.Contains(s, "degraded") || strings.Contains(s, "inactive") {
+        return CheckResult{"md_raid", Critical, "md RAID degraded/inactive", nil}
+    }
+    return CheckResult{"md_raid", Healthy, "software RAID OK", nil}
 }
 
 func checkIPMI() CheckResult {
@@ -299,11 +327,16 @@ func getLocalIP() string {
 	if err != nil {
 		return "127.0.0.1"
 	}
+	// Iterate over the list of network interfaces
 	for _, a := range addrs {
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && ipnet.IP.To4() != nil {
+		// Check if the address is a valid IP address and not a loopback or link-local address
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && !ipnet.IP.IsLinkLocalUnicast() && ipnet.IP.To4() != nil {
+			// Return the first valid IPv4 address found
 			return ipnet.IP.String()
 		}
 	}
+	// Default to loopback if no valid network address is found
 	return "127.0.0.1"
 }
+
 
