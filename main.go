@@ -321,22 +321,49 @@ func checkProcesses() CheckResult {
 	return CheckResult{"processes", Healthy, msg, count}
 }
 
-// Utility: get IP for logging
 func getLocalIP() string {
-	addrs, err := net.InterfaceAddrs()
+	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "127.0.0.1"
 	}
-	// Iterate over the list of network interfaces
-	for _, a := range addrs {
-		// Check if the address is a valid IP address and not a loopback or link-local address
-		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() && !ipnet.IP.IsLinkLocalUnicast() && ipnet.IP.To4() != nil {
-			// Return the first valid IPv4 address found
-			return ipnet.IP.String()
+
+	for _, iface := range ifaces {
+		// Skip interfaces that are down or loopback
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+
+			ip = ip.To4()
+			if ip == nil {
+				continue // not an ipv4 address
+			}
+
+			// Skip link-local addresses (169.254.x.x)
+			if ip[0] == 169 && ip[1] == 254 {
+				continue
+			}
+
+			return ip.String()
 		}
 	}
-	// Default to loopback if no valid network address is found
+
 	return "127.0.0.1"
 }
-
-
