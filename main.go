@@ -301,6 +301,8 @@ func refreshChecks() {
 	checks = append(checks, checkIPMI())
 	checks = append(checks, checkLoad())
 	checks = append(checks, checkProcesses())
+	checks = append(checks, checkBattery())
+	checks = append(checks, checkSystemInfo())
 
 	overall := Healthy
 	for _, c := range checks {
@@ -513,6 +515,256 @@ func checkProcesses() CheckResult {
 		return CheckResult{"processes", Warning, msg, count}
 	}
 	return CheckResult{"processes", Healthy, msg, count}
+}
+
+// checkBattery reports battery percentage. Uses platform-specific non-elevated methods:
+// - Windows: wmic path Win32_Battery get EstimatedChargeRemaining
+// - Linux: /sys/class/power_supply/*/capacity
+// - Android: dumpsys battery OR getprop (dumpsys preferred)
+func checkBattery() CheckResult {
+	// Helper to decide status
+	statusFromPct := func(p int) StatusLevel {
+		if p < 0 {
+			return Unknown
+		}
+		if p < 20 {
+			return Critical
+		}
+		if p < 40 {
+			return Warning
+		}
+		return Healthy
+	}
+
+	if runtime.GOOS == "windows" {
+		out, err := exec.Command("wmic", "path", "Win32_Battery", "get", "EstimatedChargeRemaining").Output()
+		if err != nil {
+			// wmic might not exist or battery not present
+			return CheckResult{"battery", Unknown, "wmic query failed or no battery present", nil}
+		}
+		lines := strings.Fields(string(out))
+		// Expect header + value(s). Find first integer value
+		for _, tok := range lines {
+			if n, err := strconv.Atoi(tok); err == nil {
+				status := statusFromPct(n)
+				return CheckResult{"battery", status, fmt.Sprintf("battery %d%%", n), map[string]int{"percentage": n}}
+			}
+		}
+		return CheckResult{"battery", Unknown, "no battery info found", nil}
+	}
+
+	// Android: try dumpsys battery then getprop fallback
+	if runtime.GOOS == "android" {
+		// dumpsys battery (preferred)
+		if out, err := exec.Command("dumpsys", "battery").Output(); err == nil {
+			// look for "level: <n>"
+			for _, line := range strings.Split(string(out), "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "level:") {
+					parts := strings.Fields(line)
+					if len(parts) >= 2 {
+						if n, err := strconv.Atoi(parts[1]); err == nil {
+							status := statusFromPct(n)
+							return CheckResult{"battery", status, fmt.Sprintf("battery %d%%", n), map[string]int{"percentage": n}}
+						}
+					}
+				}
+			}
+		}
+		// fallback: getprop ro.battery... (less common) or fail
+		if out, err := exec.Command("getprop", "ro.boot.battery").Output(); err == nil {
+			if s := strings.TrimSpace(string(out)); s != "" {
+				if n, err := strconv.Atoi(s); err == nil {
+					return CheckResult{"battery", statusFromPct(n), fmt.Sprintf("battery %d%%", n), map[string]int{"percentage": n}}
+				}
+			}
+		}
+		return CheckResult{"battery", Unknown, "cannot determine battery on android", nil}
+	}
+
+	// Generic Linux / other Unix: check /sys/class/power_supply/*
+	// This avoids elevated permissions; reading those files is generally permitted.
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd" || runtime.GOOS == "netbsd" {
+		// look for any capacity file under /sys/class/power_supply
+		paths, _ := ioutil.ReadDir("/sys/class/power_supply")
+		for _, p := range paths {
+			capPath := "/sys/class/power_supply/" + p.Name() + "/capacity"
+			if data, err := ioutil.ReadFile(capPath); err == nil {
+				s := strings.TrimSpace(string(data))
+				if n, err := strconv.Atoi(s); err == nil {
+					status := statusFromPct(n)
+					return CheckResult{"battery", status, fmt.Sprintf("%s battery %d%%", p.Name(), n), map[string]int{"percentage": n}}
+				}
+			}
+			// Some systems use "charge_now"/"charge_full" to compute percent; try those if capacity unavailable
+			chargeNow := "/sys/class/power_supply/" + p.Name() + "/charge_now"
+			chargeFull := "/sys/class/power_supply/" + p.Name() + "/charge_full"
+			if dn, err1 := ioutil.ReadFile(chargeNow); err1 == nil {
+				if df, err2 := ioutil.ReadFile(chargeFull); err2 == nil {
+					if n1, err3 := strconv.Atoi(strings.TrimSpace(string(dn))); err3 == nil {
+						if n2, err4 := strconv.Atoi(strings.TrimSpace(string(df))); err4 == nil && n2 > 0 {
+							percent := int(float64(n1) / float64(n2) * 100.0)
+							status := statusFromPct(percent)
+							return CheckResult{"battery", status, fmt.Sprintf("%s battery %d%% (calc)", p.Name(), percent), map[string]int{"percentage": percent}}
+						}
+					}
+				}
+			}
+		}
+		// If no battery entries found, it's likely a server or no battery
+		return CheckResult{"battery", Unknown, "no battery information found", nil}
+	}
+
+	// fallback for unknown OSes
+	return CheckResult{"battery", Unknown, "battery check not implemented for this OS", nil}
+}
+
+// checkSystemInfo gathers system vendor/make, model and serial number using non-elevated means:
+// - Windows: wmic csproduct / wmic bios get serialnumber
+// - Linux: /sys/class/dmi/id/* or hostnamectl fallback, /proc/cpuinfo (Raspberry Pi's "Serial")
+// - Android: getprop ro.product.manufacturer / ro.product.model / ro.serialno or ro.boot.serialno
+func checkSystemInfo() CheckResult {
+	info := map[string]string{
+		"vendor": "",
+		"model":  "",
+		"serial": "",
+	}
+
+	if runtime.GOOS == "windows" {
+		// vendor/model
+		if out, err := exec.Command("wmic", "csproduct", "get", "vendor,version,name", "/format:list").Output(); err == nil {
+			// parse lines like Vendor=Dell Inc.
+			for _, line := range strings.Split(string(out), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				kv := strings.SplitN(line, "=", 2)
+				if len(kv) != 2 {
+					continue
+				}
+				k := strings.ToLower(strings.TrimSpace(kv[0]))
+				v := strings.TrimSpace(kv[1])
+				switch k {
+				case "vendor":
+					info["vendor"] = v
+				case "name":
+					// name often contains model/product
+					info["model"] = v
+				}
+			}
+		}
+		// serial: BIOS serial
+		if out, err := exec.Command("wmic", "bios", "get", "serialnumber").Output(); err == nil {
+			lines := strings.Fields(string(out))
+			// first numeric/text token after header
+			for _, tok := range lines {
+				// skip header "SerialNumber"
+				if strings.EqualFold(tok, "SerialNumber") {
+					continue
+				}
+				// take first remaining token
+				info["serial"] = tok
+				break
+			}
+		}
+		// Finalize
+		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" {
+			return CheckResult{"system_info", Unknown, "wmic queries failed or no info", info}
+		}
+		return CheckResult{"system_info", Healthy, "system info collected (windows)", info}
+	}
+
+	if runtime.GOOS == "android" {
+		// getprop is commonly available on Android devices
+		for k, prop := range map[string]string{"vendor": "ro.product.manufacturer", "model": "ro.product.model", "serial": "ro.serialno"} {
+			if out, err := exec.Command("getprop", prop).Output(); err == nil {
+				val := strings.TrimSpace(string(out))
+				if val != "" && val != "unknown" {
+					info[k] = val
+				}
+			}
+		}
+		// fallback for serial
+		if info["serial"] == "" {
+			if out, err := exec.Command("getprop", "ro.boot.serialno").Output(); err == nil {
+				if s := strings.TrimSpace(string(out)); s != "" {
+					info["serial"] = s
+				}
+			}
+		}
+		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" {
+			return CheckResult{"system_info", Unknown, "getprop failed to return system info", info}
+		}
+		return CheckResult{"system_info", Healthy, "system info collected (android)", info}
+	}
+
+	// Linux and other Unix-like
+	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd" || runtime.GOOS == "netbsd" {
+		// Try sysfs/dmi entries (commonly readable)
+		tryRead := func(path string) string {
+			if data, err := ioutil.ReadFile(path); err == nil {
+				return strings.TrimSpace(string(data))
+			}
+			return ""
+		}
+		if v := tryRead("/sys/class/dmi/id/sys_vendor"); v != "" {
+			info["vendor"] = v
+		}
+		if v := tryRead("/sys/class/dmi/id/product_name"); v != "" {
+			info["model"] = v
+		}
+		if v := tryRead("/sys/class/dmi/id/product_serial"); v != "" {
+			info["serial"] = v
+		}
+		// Other possible fields
+		if info["serial"] == "" {
+			if v := tryRead("/sys/class/dmi/id/board_serial"); v != "" {
+				info["serial"] = v
+			}
+		}
+		// hostnamectl fallback (may include "Machine ID" or vendor/product lines)
+		if info["vendor"] == "" || info["model"] == "" {
+			if out, err := exec.Command("hostnamectl").Output(); err == nil {
+				for _, line := range strings.Split(string(out), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(strings.ToLower(line), "chassis:") {
+						// ignore
+					}
+					if strings.HasPrefix(strings.ToLower(line), "vendor:") && info["vendor"] == "" {
+						info["vendor"] = strings.TrimSpace(strings.SplitN(line, ":", 2)[1])
+					}
+					if strings.HasPrefix(strings.ToLower(line), "model:") && info["model"] == "" {
+						info["model"] = strings.TrimSpace(strings.SplitN(line, ":", 2)[1])
+					}
+				}
+			}
+		}
+		// Raspberry Pi / ARM boards often put serial in /proc/cpuinfo
+		if info["serial"] == "" {
+			if out, err := ioutil.ReadFile("/proc/cpuinfo"); err == nil {
+				for _, line := range strings.Split(string(out), "\n") {
+					if strings.HasPrefix(strings.ToLower(line), "serial") {
+						parts := strings.SplitN(line, ":", 2)
+						if len(parts) == 2 {
+							if s := strings.TrimSpace(parts[1]); s != "" {
+								info["serial"] = s
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// If still nothing, mark unknown
+		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" {
+			return CheckResult{"system_info", Unknown, "no system DMI info available (requires /sys/class/dmi/id or hostnamectl)", info}
+		}
+		return CheckResult{"system_info", Healthy, "system info collected (linux)", info}
+	}
+
+	return CheckResult{"system_info", Unknown, "system info check not implemented for this OS", info}
 }
 
 // --- SNMP scanning (native) ---
@@ -947,4 +1199,3 @@ func getLocalIP() string {
 	}
 	return "127.0.0.1"
 }
-

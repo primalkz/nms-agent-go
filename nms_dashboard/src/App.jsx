@@ -6,7 +6,7 @@ const [activeTab, setActiveTab] = useState('host');
 const [hostData, setHostData] = useState(null);
 const [snmpData, setSnmpData] = useState(null);
 const [nmapData, setNmapData] = useState(null);
-const [baseUrl, setBaseUrl] = useState('http://192.168.2.39:8080');
+const [baseUrl, setBaseUrl] = useState('http://192.168.2.153:8080');
 const [snmpSubnet, setSnmpSubnet] = useState('192.168.2.0/24');
 const [nmapSubnet, setNmapSubnet] = useState('192.168.2.0/24');
 const [nmapPorts, setNmapPorts] = useState('22,80,443');
@@ -231,13 +231,23 @@ return (
                             <div className="flex items-start justify-between">
                                 <div>
                                     <h3 className="text-2xl font-bold text-gray-800 mb-2">{hostData.hostname}</h3>
-                                    <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm text-gray-700">
+                                    <div className="grid grid-cols-4 gap-x-8 gap-y-2 text-sm text-gray-700">
                                         <div><span className="font-medium">OS:</span> {hostData.os}</div>
                                         <div><span className="font-medium">Platform:</span> {hostData.platform}</div>
                                         <div><span className="font-medium">Version:</span> {hostData.platform_version}
                                         </div>
                                         <div><span className="font-medium">Kernel:</span> {hostData.kernel}</div>
-                                        <div className="col-span-2"><span className="font-medium">Uptime:</span>
+                                        <div><span className="font-medium">Battery:</span> {hostData?.checks?.find(c => c.name === 'battery')?.details?.percentage ?? 'N/A'}%</div>
+                                        <div>
+                                          <span className="font-medium">System Make:</span> {hostData?.checks?.find(c => c.name === 'system_info')?.details?.vendor ?? 'N/A'}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">System Model:</span> {hostData?.checks?.find(c => c.name === 'system_info')?.details?.model ?? 'N/A'}
+                                        </div>
+                                        <div>
+                                          <span className="font-medium">System Serial No.:</span> {hostData?.checks?.find(c => c.name === 'system_info')?.details?.serial ?? 'N/A'}
+                                        </div>
+                                        <div className="col-span-2"><span className="font-medium">Uptime: </span>
                                             {formatUptime(hostData.uptime_seconds)}</div>
                                     </div>
                                 </div>
@@ -505,7 +515,7 @@ return (
                                     {selectedDevice.data?.hostname || "Unknown"}
                                   </h3>
 
-                                  <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm text-gray-700">
+                                  <div className="grid grid-cols-3 gap-x-8 gap-y-2 text-sm text-gray-700">
                                     <div>
                                       <span className="font-medium">OS:</span>{" "}
                                       {selectedDevice.data?.os || "N/A"}
@@ -521,6 +531,22 @@ return (
                                     <div>
                                       <span className="font-medium">Kernel:</span>{" "}
                                       {selectedDevice.data?.kernel || "N/A"}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">System Model:</span>{" "}
+                                      {selectedDevice.data.checks?.find(c => c.name === 'system_info')?.details?.model ?? 'N/A'}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">System Serial No.:</span>{" "}
+                                      {selectedDevice.data.checks?.find(c => c.name === 'system_info')?.details?.serial ?? 'N/A'}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">System Make.:</span>{" "}
+                                      {selectedDevice.data.checks?.find(c => c.name === 'system_info')?.details?.vendor ?? 'N/A'}
+                                    </div>
+                                    <div>
+                                      <span className="font-medium">Battery Percentage.:</span>{" "}
+                                      {selectedDevice.data.checks?.find(c => c.name === 'battery')?.details?.percentage ?? 'N/A'}%
                                     </div>
                                     <div className="col-span-2">
                                       <span className="font-medium">Uptime:</span>{" "}
