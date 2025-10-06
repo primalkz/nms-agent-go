@@ -69,14 +69,13 @@ type HealthReport struct {
 	Checks        []CheckResult `json:"checks"`
 }
 
-// SNMPDeviceInfo describes the result for a scanned host
 type SNMPDeviceInfo struct {
 	IP          string `json:"ip"`
 	SysDescr    string `json:"sys_descr,omitempty"`
 	SysObjectID string `json:"sys_object_id,omitempty"`
 	SysName     string `json:"sys_name,omitempty"`
-	OpenPorts   []int             `json:"open_ports,omitempty"` // new field
-	Health      map[string]string `json:"health,omitempty"`     // new health-related SNMP data
+	OpenPorts   []int             `json:"open_ports,omitempty"`
+	Health      map[string]string `json:"health,omitempty"`
 }
 
 var (
@@ -108,14 +107,12 @@ func expandCIDR(cidr string) ([]string, error) {
         ips = append(ips, ip.String())
     }
 
-    // remove network and broadcast addresses
     if len(ips) > 2 {
         return ips[1 : len(ips)-1], nil
     }
     return ips, nil
 }
 
-// incIP increments an IP address (used for iteration)
 func incIP(ip net.IP) {
     for j := len(ip) - 1; j >= 0; j-- {
         ip[j]++
@@ -625,9 +622,10 @@ func checkBattery() CheckResult {
 // - Android: getprop ro.product.manufacturer / ro.product.model / ro.serialno or ro.boot.serialno
 func checkSystemInfo() CheckResult {
 	info := map[string]string{
-		"vendor": "",
-		"model":  "",
-		"serial": "",
+		"vendor":  "",
+		"model":   "",
+		"serial":  "",
+		"username": "",
 	}
 
 	if runtime.GOOS == "windows" {
@@ -654,6 +652,7 @@ func checkSystemInfo() CheckResult {
 				}
 			}
 		}
+
 		// serial: BIOS serial
 		if out, err := exec.Command("wmic", "bios", "get", "serialnumber").Output(); err == nil {
 			lines := strings.Fields(string(out))
@@ -668,8 +667,20 @@ func checkSystemInfo() CheckResult {
 				break
 			}
 		}
+
+		// get username
+		if out, err := exec.Command("whoami").Output(); err == nil {
+			username := strings.TrimSpace(string(out))
+			parts := strings.Split(username, "\\")
+			if len(parts) > 1 {
+				info["username"] = parts[1] // Only take the part after the backslash
+			} else {
+				info["username"] = username // If there is no backslash, just use the whole string
+			}
+		}
+
 		// Finalize
-		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" {
+		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" && info["username"] == "" {
 			return CheckResult{"system_info", Unknown, "wmic queries failed or no info", info}
 		}
 		return CheckResult{"system_info", Healthy, "system info collected (windows)", info}
@@ -685,6 +696,7 @@ func checkSystemInfo() CheckResult {
 				}
 			}
 		}
+
 		// fallback for serial
 		if info["serial"] == "" {
 			if out, err := exec.Command("getprop", "ro.boot.serialno").Output(); err == nil {
@@ -693,6 +705,7 @@ func checkSystemInfo() CheckResult {
 				}
 			}
 		}
+
 		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" {
 			return CheckResult{"system_info", Unknown, "getprop failed to return system info", info}
 		}
@@ -708,6 +721,7 @@ func checkSystemInfo() CheckResult {
 			}
 			return ""
 		}
+
 		if v := tryRead("/sys/class/dmi/id/sys_vendor"); v != "" {
 			info["vendor"] = v
 		}
@@ -717,12 +731,14 @@ func checkSystemInfo() CheckResult {
 		if v := tryRead("/sys/class/dmi/id/product_serial"); v != "" {
 			info["serial"] = v
 		}
+
 		// Other possible fields
 		if info["serial"] == "" {
 			if v := tryRead("/sys/class/dmi/id/board_serial"); v != "" {
 				info["serial"] = v
 			}
 		}
+
 		// hostnamectl fallback (may include "Machine ID" or vendor/product lines)
 		if info["vendor"] == "" || info["model"] == "" {
 			if out, err := exec.Command("hostnamectl").Output(); err == nil {
@@ -740,6 +756,7 @@ func checkSystemInfo() CheckResult {
 				}
 			}
 		}
+
 		// Raspberry Pi / ARM boards often put serial in /proc/cpuinfo
 		if info["serial"] == "" {
 			if out, err := ioutil.ReadFile("/proc/cpuinfo"); err == nil {
@@ -757,8 +774,13 @@ func checkSystemInfo() CheckResult {
 			}
 		}
 
+		// get username for linux
+		if username := os.Getenv("USER"); username != "" {
+			info["username"] = username
+		}
+
 		// If still nothing, mark unknown
-		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" {
+		if info["vendor"] == "" && info["model"] == "" && info["serial"] == "" && info["username"] == "" {
 			return CheckResult{"system_info", Unknown, "no system DMI info available (requires /sys/class/dmi/id or hostnamectl)", info}
 		}
 		return CheckResult{"system_info", Healthy, "system info collected (linux)", info}
