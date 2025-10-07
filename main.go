@@ -34,6 +34,8 @@ const (
     reset = "\033[0m"
 )
 
+var enableDB bool
+
 const (
 	dhost     = "localhost"
 	port     = 5432
@@ -137,8 +139,16 @@ func incIP(ip net.IP) {
 }
 
 func main() {
-	connectDB()
-    defer db.Close()
+	fmt.Print("Enable database logging? ([y/N] Only allow if you're host): ")
+    var input string
+    fmt.Scanln(&input)
+    if input == "y" || input == "Y" || input == "yes" || input == "Yes" {
+        enableDB = true
+        connectDB()
+        defer db.Close()
+    } else {
+        fmt.Println("Database logging disabled.")
+    }
 
 	refreshChecks()
 
@@ -422,10 +432,14 @@ func main() {
 }
 
 func saveHealthReport(report HealthReport) {
-    if db == nil {
-        log.Println("DB not connected")
+	if !enableDB || db == nil {
         return
     }
+
+    // if db == nil {
+    //     log.Println("DB not connected")
+    //     return
+    // }
 
     checksJSON, err := json.Marshal(report.Checks)
     if err != nil {
