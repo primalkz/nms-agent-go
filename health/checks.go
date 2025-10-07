@@ -247,21 +247,56 @@ func CheckBattery() CheckResult {
 	}
 
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("wmic", "path", "Win32_Battery", "get", "EstimatedChargeRemaining").Output()
+		out, err := exec.Command("wmic", "path", "Win32_Battery", "get", "EstimatedChargeRemaining,BatteryStatus", "/format:list").Output()
 		if err != nil {
-			// wmic might not exist or battery not present
 			return CheckResult{"battery", Unknown, "wmic query failed or no battery present", nil}
 		}
-		lines := strings.Fields(string(out))
-		// Expect header + value(s). Find first integer value
-		for _, tok := range lines {
-			if n, err := strconv.Atoi(tok); err == nil {
-				status := statusFromPct(n)
-				return CheckResult{"battery", status, fmt.Sprintf("battery %d%%", n), map[string]int{"percentage": n}}
+
+		lines := strings.Split(string(out), "\n")
+		var percentage int = -1
+		var batteryStatus int = -1
+
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "EstimatedChargeRemaining=") {
+				value := strings.TrimPrefix(line, "EstimatedChargeRemaining=")
+				if n, err := strconv.Atoi(value); err == nil {
+					percentage = n
+				}
+			} else if strings.HasPrefix(line, "BatteryStatus=") {
+				value := strings.TrimPrefix(line, "BatteryStatus=")
+				if n, err := strconv.Atoi(value); err == nil {
+					batteryStatus = n
+				}
 			}
 		}
-		return CheckResult{"battery", Unknown, "no battery info found", nil}
+
+		charging := batteryStatus == 6 || batteryStatus == 7 || batteryStatus == 8 || batteryStatus == 9 || batteryStatus == 2
+
+		var status StatusLevel
+		if charging {
+			status = Healthy
+		} else {
+			status = statusFromPct(percentage)
+		}
+
+		msg := fmt.Sprintf("battery %d%%", percentage)
+		if charging {
+			msg += " (charging)"
+		}
+
+		return CheckResult{
+			Name:    "battery",
+			Status:  status,
+			Message: msg,
+			Details: map[string]interface{}{
+				"percentage":    percentage,
+				"charging":      charging,
+				"batteryStatus": batteryStatus,
+			},
+		}
 	}
+
 
 	// Android: try dumpsys battery then getprop fallback
 	if runtime.GOOS == "android" {
@@ -295,35 +330,84 @@ func CheckBattery() CheckResult {
 	// Generic Linux / other Unix: check /sys/class/power_supply/*
 	// This avoids elevated permissions; reading those files is generally permitted.
 	if runtime.GOOS == "linux" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd" || runtime.GOOS == "netbsd" {
-		// look for any capacity file under /sys/class/power_supply
-		paths, _ := ioutil.ReadDir("/sys/class/power_supply")
-		for _, p := range paths {
-			capPath := "/sys/class/power_supply/" + p.Name() + "/capacity"
+		entries, _ := ioutil.ReadDir("/sys/class/power_supply")
+		for _, entry := range entries {
+			basePath := "/sys/class/power_supply/" + entry.Name()
+
+			// Check if this is a battery
+			typePath := basePath + "/type"
+			if data, err := ioutil.ReadFile(typePath); err == nil {
+				deviceType := strings.TrimSpace(string(data))
+				if deviceType != "Battery" {
+					continue // skip non-battery devices like AC
+				}
+			} else {
+				continue // skip if no type
+			}
+
+			// Read percentage from 'capacity'
+			capPath := basePath + "/capacity"
+			var percent int = -1
 			if data, err := ioutil.ReadFile(capPath); err == nil {
-				s := strings.TrimSpace(string(data))
-				if n, err := strconv.Atoi(s); err == nil {
-					status := statusFromPct(n)
-					return CheckResult{"battery", status, fmt.Sprintf("%s battery %d%%", p.Name(), n), map[string]int{"percentage": n}}
+				if n, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+					percent = n
 				}
 			}
-			// Some systems use "charge_now"/"charge_full" to compute percent; try those if capacity unavailable
-			chargeNow := "/sys/class/power_supply/" + p.Name() + "/charge_now"
-			chargeFull := "/sys/class/power_supply/" + p.Name() + "/charge_full"
-			if dn, err1 := ioutil.ReadFile(chargeNow); err1 == nil {
-				if df, err2 := ioutil.ReadFile(chargeFull); err2 == nil {
-					if n1, err3 := strconv.Atoi(strings.TrimSpace(string(dn))); err3 == nil {
-						if n2, err4 := strconv.Atoi(strings.TrimSpace(string(df))); err4 == nil && n2 > 0 {
-							percent := int(float64(n1) / float64(n2) * 100.0)
-							status := statusFromPct(percent)
-							return CheckResult{"battery", status, fmt.Sprintf("%s battery %d%% (calc)", p.Name(), percent), map[string]int{"percentage": percent}}
+
+			// Try to calculate percentage manually if not found
+			if percent < 0 {
+				chargeNow := basePath + "/charge_now"
+				chargeFull := basePath + "/charge_full"
+				if dn, err1 := ioutil.ReadFile(chargeNow); err1 == nil {
+					if df, err2 := ioutil.ReadFile(chargeFull); err2 == nil {
+						if n1, err3 := strconv.Atoi(strings.TrimSpace(string(dn))); err3 == nil {
+							if n2, err4 := strconv.Atoi(strings.TrimSpace(string(df))); err4 == nil && n2 > 0 {
+								percent = int(float64(n1) / float64(n2) * 100.0)
+							}
 						}
 					}
 				}
 			}
+
+			// Read charging status
+			charging := false
+			statusPath := basePath + "/status"
+			if data, err := ioutil.ReadFile(statusPath); err == nil {
+				s := strings.TrimSpace(string(data))
+				if s == "Charging" || s == "Full" {
+					charging = true
+				}
+			}
+
+			// Determine health
+			var status StatusLevel
+			if charging {
+				status = Healthy
+			} else {
+				status = statusFromPct(percent)
+			}
+
+			msg := fmt.Sprintf("%s battery %d%%", entry.Name(), percent)
+			if charging {
+				msg += " (charging)"
+			}
+
+			return CheckResult{
+				Name:    "battery",
+				Status:  status,
+				Message: msg,
+				Details: map[string]interface{}{
+					"percentage": percent,
+					"charging":   charging,
+					"device":     entry.Name(),
+				},
+			}
 		}
-		// If no battery entries found, it's likely a server or no battery
+
 		return CheckResult{"battery", Unknown, "no battery information found", nil}
 	}
+
+
 
 	// fallback for unknown OSes
 	return CheckResult{"battery", Unknown, "battery check not implemented for this OS", nil}

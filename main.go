@@ -12,7 +12,10 @@ import (
 	"sync"
 	"time"
 	"log"
+	"context"
 
+	"github.com/jackc/pgx/v5" 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shirou/gopsutil/v4/host"
 
 	"nms_agent_go/health"
@@ -25,6 +28,43 @@ const (
     Healthy  = health.Healthy
     Unknown  = health.Unknown
 )
+
+const (
+    green = "\033[32m"
+    reset = "\033[0m"
+)
+
+const (
+	dhost     = "localhost"
+	port     = 5432
+	user     = "postgres"
+	password = ""
+	dbname   = "goolag"
+)
+
+var db *pgxpool.Pool
+
+func connectDB() {
+    connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s", user, password, dhost, port, dbname)
+
+    var err error
+    db, err = pgxpool.New(context.Background(), connStr)
+    if err != nil {
+        log.Printf("Unable to connect to database: %v", err)
+        db = nil
+        return
+    }
+
+    // Test connection
+    err = db.Ping(context.Background())
+    if err != nil {
+        log.Printf("Unable to ping database: %v", err)
+        db = nil
+        return
+    }
+
+    log.Println("Connected to PostgreSQL")
+}
 
 func enableCORS(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -97,10 +137,13 @@ func incIP(ip net.IP) {
 }
 
 func main() {
+	connectDB()
+    defer db.Close()
+
 	refreshChecks()
 
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
 			refreshChecks()
@@ -232,6 +275,19 @@ func main() {
 				}
 				defer resp.Body.Close()
 				body, _ := ioutil.ReadAll(resp.Body)
+
+				var report HealthReport
+				if err := json.Unmarshal(body, &report); err != nil {
+					mu.Lock()
+					results = append(results, Device{IP: ip, Err: "invalid JSON: " + err.Error()})
+					mu.Unlock()
+					return
+				}
+
+				// log.Println(report)
+
+				go saveHealthReport(report)
+				
 				var data interface{}
 				json.Unmarshal(body, &data)
 
@@ -248,15 +304,157 @@ func main() {
 		})
 	}))
 
+	http.HandleFunc("/get_health_reports", enableCORS(func(w http.ResponseWriter, r *http.Request) {
+		hostname := r.URL.Query().Get("hostname")
+
+		var rows pgx.Rows
+		var err error
+
+		ctx := context.Background()
+
+		if hostname != "" {
+			// Fetch last 10 rows for the given hostname (most recent first)
+			query := `
+				SELECT time, hostname, overall_status, os, platform, platform_version, kernel, uptime_seconds, checks
+				FROM health_reports
+				WHERE hostname = $1
+				ORDER BY time DESC
+				LIMIT 10
+			`
+			rows, err = db.Query(ctx, query, hostname)
+		} else {
+			// If no hostname provided, fetch last 10 from all hosts
+			query := `
+				SELECT time, hostname, overall_status, os, platform, platform_version, kernel, uptime_seconds, checks
+				FROM health_reports
+				ORDER BY time DESC
+				LIMIT 10
+			`
+			rows, err = db.Query(ctx, query)
+		}
+
+		if err != nil {
+			log.Printf("DB query error: %v", err)
+			http.Error(w, "database query failed", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		type ReportRow struct {
+			Time           time.Time           `json:"time"`
+			Hostname       string              `json:"hostname"`
+			OverallStatus  health.StatusLevel  `json:"overall_status"`
+			OS             string              `json:"os"`
+			Platform       string              `json:"platform"`
+			PlatformVer    string              `json:"platform_version"`
+			Kernel         string              `json:"kernel"`
+			UptimeSeconds  uint64              `json:"uptime_seconds"`
+			Checks         []health.CheckResult `json:"checks"`
+		}
+
+		reports := []ReportRow{}
+
+		for rows.Next() {
+			var (
+				timeVal        time.Time
+				hostnameVal    string
+				overallStatus  health.StatusLevel
+				osVal          string
+				platformVal    string
+				platformVerVal string
+				kernelVal      string
+				uptimeVal      uint64
+				checksJSON     []byte
+			)
+
+			err := rows.Scan(&timeVal, &hostnameVal, &overallStatus, &osVal, &platformVal,
+				&platformVerVal, &kernelVal, &uptimeVal, &checksJSON)
+			if err != nil {
+				log.Printf("DB scan error: %v", err)
+				continue
+			}
+
+			var checks []health.CheckResult
+			if err := json.Unmarshal(checksJSON, &checks); err != nil {
+				log.Printf("JSON unmarshal error: %v", err)
+			}
+
+			reports = append(reports, ReportRow{
+				Time:          timeVal,
+				Hostname:      hostnameVal,
+				OverallStatus: overallStatus,
+				OS:            osVal,
+				Platform:      platformVal,
+				PlatformVer:   platformVerVal,
+				Kernel:        kernelVal,
+				UptimeSeconds: uptimeVal,
+				Checks:        checks,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"hostname": hostname,
+			"count":    len(reports),
+			"reports":  reports,
+		})
+	}))
 
 	addr := ":8080"
-	fmt.Println("NMS Agent running at http://" + getLocalIP() + addr + "/metrics")
-	fmt.Println("SNMP scan endpoint: http://" + getLocalIP() + addr + "/snmp_scan?subnet=YOUR_SUBNET")
-	fmt.Println("NMAP scan endpoint: http://" + getLocalIP() + addr + "/nmap_scan?subnet=YOUR_SUBNET&ports=22,80,443&timeout=YOUR_TIME")
+	ip := getLocalIP()
+	
+	fmt.Println("\n" + green + "=== NMS Agent Endpoints ===" + reset + "\n")
+
+    fmt.Println(green + "→ Metrics Endpoint:" + reset)
+    fmt.Println("  http://" + ip + addr + "/metrics\n")
+
+    fmt.Println(green + "→ SNMP Scan Endpoint:" + reset)
+    fmt.Println("  http://" + ip + addr + "/snmp_scan?subnet=YOUR_SUBNET\n")
+
+    fmt.Println(green + "→ NMAP Scan Endpoint:" + reset)
+    fmt.Println("  http://" + ip + addr + "/nmap_scan?subnet=YOUR_SUBNET&ports=22,80,443&timeout=YOUR_TIME\n")
+
+    fmt.Println(green + "→ Device Health Report Endpoint:" + reset)
+    fmt.Println("  http://" + ip + addr + "/get_health_reports?hostname=DOMAIN_HOSTNAME\n")
+
+    fmt.Println(green + "============================" + reset + "\n")
 	log.Fatal(http.ListenAndServe(addr, nil));
 }
 
+func saveHealthReport(report HealthReport) {
+    if db == nil {
+        log.Println("DB not connected")
+        return
+    }
+
+    checksJSON, err := json.Marshal(report.Checks)
+    if err != nil {
+        log.Printf("Error marshaling checks: %v", err)
+        return
+    }
+
+    _, err = db.Exec(context.Background(),
+        `INSERT INTO health_reports (time, hostname, overall_status, os, platform, platform_version, kernel, uptime_seconds, checks)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (time, hostname) DO NOTHING`,
+        time.Now().UTC(),
+        report.Hostname,
+        report.OverallStatus,
+        report.OS,
+        report.Platform,
+        report.PlatformVer,
+        report.Kernel,
+        report.UptimeSeconds,
+        checksJSON,
+    )
+
+    if err != nil {
+        log.Printf("Failed to insert health report: %v", err)
+    }
+}
+
 func refreshChecks() {
+	log.Println("refresh executed!")
 	var checks []health.CheckResult
 
 	hostname, _ := os.Hostname()
@@ -294,6 +492,8 @@ func refreshChecks() {
 	stateLock.Lock()
 	state = report
 	stateLock.Unlock()
+
+	go saveHealthReport(report)
 }
 
 // --- Utility: improved local IP detection ---
