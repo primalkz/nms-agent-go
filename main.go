@@ -14,12 +14,19 @@ import (
 	"log"
 	"context"
 
+	// console specific imports
+	"os/exec"
+	"bytes"
+	"bufio"
+	"strings"
+
 	"github.com/jackc/pgx/v5" 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shirou/gopsutil/v4/host"
 
 	"nms_agent_go/health"
 	"nms_agent_go/network"
+	"nms_agent_go/console"
 )
 
 const (
@@ -139,7 +146,30 @@ func incIP(ip net.IP) {
     }
 }
 
-func discoverAgents(subnet, port string) []map[string]interface{} {
+func listenForConsoleKey() {
+    reader := bufio.NewReader(os.Stdin)
+    for {
+        input, err := reader.ReadString('\n')
+        if err != nil {
+            fmt.Println("Error reading console input:", err)
+            continue
+        }
+        input = strings.TrimSpace(input)
+        if input == "c" || input == "C" {
+            devices := []console.Device{
+                // Fill this with real devices from your network discovery
+                // For example: {IP: "192.168.2.10", Port: "8080", Name: "host1"},
+            }
+            selected := console.SelectDevice(devices)
+            if selected != nil {
+                console.ConsoleSession(selected)
+            }
+            fmt.Println("Exited console mode. Press 'c' to open again.")
+        }
+    }
+}
+
+func discoverAgents(subnet, port string, db_log bool) []map[string]interface{} {
 	if enableLogging && enableDB && db != nil {
 		log.Println("Logged Discovered Devices")
 	}
@@ -169,6 +199,7 @@ func discoverAgents(subnet, port string) []map[string]interface{} {
 			defer resp.Body.Close()
 
 			body, _ := ioutil.ReadAll(resp.Body)
+
 			var report HealthReport
 			if err := json.Unmarshal(body, &report); err != nil {
 				mu.Lock()
@@ -177,7 +208,10 @@ func discoverAgents(subnet, port string) []map[string]interface{} {
 				return
 			}
 
-			go saveHealthReport(report)
+			if db_log {
+				go saveHealthReport(report)
+			}
+
 			mu.Lock()
 			results = append(results, map[string]interface{}{"ip": ip, "data": report})
 			mu.Unlock()
@@ -228,10 +262,11 @@ func main() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			discoverAgents(subnet, port)
+			discoverAgents(subnet, port, true)
 		}
 	}()
 
+	go listenForConsoleKey()
 
 	http.HandleFunc("/metrics", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		stateLock.RLock()
@@ -327,7 +362,7 @@ func main() {
 			port = "8080"
 		}
 
-		results := discoverAgents(subnet, port)
+		results := discoverAgents(subnet, port, false)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -354,7 +389,6 @@ func main() {
 			`
 			rows, err = db.Query(ctx, query, hostname)
 		} else {
-			// If no hostname provided, fetch last 10 from all hosts
 			query := `
 				SELECT time, hostname, overall_status, os, platform, platform_version, kernel, uptime_seconds, checks
 				FROM health_reports
@@ -429,6 +463,40 @@ func main() {
 			"count":    len(reports),
 			"reports":  reports,
 		})
+	}))
+
+	http.HandleFunc("/console", enableCORS(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Command string `json:"command"`
+		}
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil || req.Command == "" {
+			http.Error(w, "Invalid request", http.StatusBadRequest)
+			return
+		}
+
+		// Execute the command
+		cmd := exec.Command("powershell", "-Command", req.Command)
+		var out bytes.Buffer
+		var stderr bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+
+		resp := map[string]string{}
+		if err != nil {
+			resp["error"] = stderr.String()
+		} else {
+			resp["output"] = out.String()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}))
 
 	addr := ":8080"
@@ -530,10 +598,8 @@ func refreshChecks() {
 	state = report
 	stateLock.Unlock()
 
-	go saveHealthReport(report)
+	// go saveHealthReport(report)
 }
-
-// --- Utility: improved local IP detection ---
 
 func getLocalIP() string {
 	ifaces, err := net.Interfaces()

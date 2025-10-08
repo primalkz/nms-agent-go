@@ -1,0 +1,324 @@
+
+
+
+    Directory: C:\Users
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        18-09-2025     17:37                admin                                                   
+d-----        30-09-2025     09:41                Administrator                                           
+d-----        30-09-2025     16:32                Gaurang Jha                                             
+d-r---        19-09-2025     07:00                Public                                                  
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:42            687 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:42           1950 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:42           3213 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:43           4476 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        06-10-2025     12:35                crud-go                                                 
+d-----        08-10-2025     15:42                nms-agent-go                                            
+d-----        23-09-2025     09:53                office-addin                                            
+d-----        30-09-2025     11:20                react-nms-monitor                                       
+d-----        07-10-2025     10:53                testgingpq                                              
+d-----        08-10-2025     12:29                test_network                                            
+d-----        18-09-2025     12:28                tpmguru-crm                                             
+d-----        18-09-2025     11:30                tpmguru-work-force                                      
+d-----        18-09-2025     16:55                tpmsignature                                            
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        06-10-2025     12:35                crud-go                                                 
+d-----        08-10-2025     15:42                nms-agent-go                                            
+d-----        23-09-2025     09:53                office-addin                                            
+d-----        30-09-2025     11:20                react-nms-monitor                                       
+d-----        07-10-2025     10:53                testgingpq                                              
+d-----        08-10-2025     12:29                test_network                                            
+d-----        18-09-2025     12:28                tpmguru-crm                                             
+d-----        18-09-2025     11:30                tpmguru-work-force                                      
+d-----        18-09-2025     16:55                tpmsignature                                            
+
+
+
+
+
+    Directory: C:\
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        19-09-2025     06:54                inetpub                                                 
+d-----        03-10-2025     16:19                Intel                                                   
+d-----        09-09-2025     16:17                LJP1100_P1560_P1600_Full_Solution                       
+d-----        01-04-2024     12:56                PerfLogs                                                
+d-r---        03-10-2025     14:52                Program Files                                           
+d-r---        18-09-2025     17:33                Program Files (x86)                                     
+d-----        16-09-2025     10:50                Python313                                               
+d-r---        18-09-2025     17:33                Users                                                   
+d-----        06-10-2025     10:28                Windows                                                 
+d-----        16-09-2025     11:02                xampp                                                   
+-a----        03-10-2025     15:05       20860024 pemhttpd.exe                                            
+-a----        03-10-2025     15:05      371925640 postgresql_18.exe                                       
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:43           9784 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+
+
+
+    Directory: C:\Users
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        18-09-2025     17:37                admin                                                   
+d-----        30-09-2025     09:41                Administrator                                           
+d-----        30-09-2025     16:32                Gaurang Jha                                             
+d-r---        19-09-2025     07:00                Public                                                  
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:44          11736 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:44          12999 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users\Gaurang Jha\Desktop\Dev\nms-agent-go
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        08-10-2025     12:50                console                                                 
+d-----        07-10-2025     10:57                health                                                  
+d-----        07-10-2025     11:35                network                                                 
+-a----        08-10-2025     15:44          14262 console_output.log                                      
+-a----        08-10-2025     12:25            891 go.mod                                                  
+-a----        08-10-2025     12:23           5032 go.sum                                                  
+-a----        08-10-2025     15:24          16178 main.go                                                 
+-a----        07-10-2025     13:18       11601920 nms_go                                                  
+-a----        08-10-2025     15:42       16416256 nms_go.exe                                              
+
+
+
+
+
+    Directory: C:\Users
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        18-09-2025     17:37                admin                                                   
+d-----        30-09-2025     09:41                Administrator                                           
+d-----        30-09-2025     16:32                Gaurang Jha                                             
+d-r---        19-09-2025     07:00                Public                                                  
+
+
+
+
+
+    Directory: C:\
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        19-09-2025     06:54                inetpub                                                 
+d-----        03-10-2025     16:19                Intel                                                   
+d-----        09-09-2025     16:17                LJP1100_P1560_P1600_Full_Solution                       
+d-----        01-04-2024     12:56                PerfLogs                                                
+d-r---        03-10-2025     14:52                Program Files                                           
+d-r---        18-09-2025     17:33                Program Files (x86)                                     
+d-----        16-09-2025     10:50                Python313                                               
+d-r---        18-09-2025     17:33                Users                                                   
+d-----        06-10-2025     10:28                Windows                                                 
+d-----        16-09-2025     11:02                xampp                                                   
+-a----        03-10-2025     15:05       20860024 pemhttpd.exe                                            
+-a----        03-10-2025     15:05      371925640 postgresql_18.exe                                       
+
+
+
+
+
+    Directory: C:\
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        19-09-2025     06:54                inetpub                                                 
+d-----        03-10-2025     16:19                Intel                                                   
+d-----        09-09-2025     16:17                LJP1100_P1560_P1600_Full_Solution                       
+d-----        01-04-2024     12:56                PerfLogs                                                
+d-r---        03-10-2025     14:52                Program Files                                           
+d-r---        18-09-2025     17:33                Program Files (x86)                                     
+d-----        16-09-2025     10:50                Python313                                               
+d-r---        18-09-2025     17:33                Users                                                   
+d-----        06-10-2025     10:28                Windows                                                 
+d-----        16-09-2025     11:02                xampp                                                   
+-a----        03-10-2025     15:05       20860024 pemhttpd.exe                                            
+-a----        03-10-2025     15:05      371925640 postgresql_18.exe                                       
+
+
+
+
+
+    Directory: C:\
+
+
+Mode                 LastWriteTime         Length Name                                                    
+----                 -------------         ------ ----                                                    
+d-----        19-09-2025     06:54                inetpub                                                 
+d-----        03-10-2025     16:19                Intel                                                   
+d-----        09-09-2025     16:17                LJP1100_P1560_P1600_Full_Solution                       
+d-----        01-04-2024     12:56                PerfLogs                                                
+d-r---        03-10-2025     14:52                Program Files                                           
+d-r---        18-09-2025     17:33                Program Files (x86)                                     
+d-----        16-09-2025     10:50                Python313                                               
+d-r---        18-09-2025     17:33                Users                                                   
+d-----        06-10-2025     10:28                Windows                                                 
+d-----        16-09-2025     11:02                xampp                                                   
+-a----        03-10-2025     15:05       20860024 pemhttpd.exe                                            
+-a----        03-10-2025     15:05      371925640 postgresql_18.exe                                       
+
+
+
