@@ -35,6 +35,7 @@ const (
 )
 
 var enableDB bool
+var enableLogging bool
 
 const (
 	dhost     = "localhost"
@@ -138,17 +139,78 @@ func incIP(ip net.IP) {
     }
 }
 
+func discoverAgents(subnet, port string) []map[string]interface{} {
+	if enableLogging && enableDB && db != nil {
+		log.Println("Logged Discovered Devices")
+	}
+	ips, err := expandCIDR(subnet)
+	if err != nil {
+		log.Printf("discoverAgents: invalid subnet %s: %v", subnet, err)
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	results := []map[string]interface{}{}
+
+	for _, ip := range ips {
+		wg.Add(1)
+		go func(ip string) {
+			defer wg.Done()
+			url := fmt.Sprintf("http://%s:%s/metrics", ip, port)
+			client := http.Client{Timeout: 2 * time.Second}
+			resp, err := client.Get(url)
+			if err != nil {
+				mu.Lock()
+				results = append(results, map[string]interface{}{"ip": ip, "error": err.Error()})
+				mu.Unlock()
+				return
+			}
+			defer resp.Body.Close()
+
+			body, _ := ioutil.ReadAll(resp.Body)
+			var report HealthReport
+			if err := json.Unmarshal(body, &report); err != nil {
+				mu.Lock()
+				results = append(results, map[string]interface{}{"ip": ip, "error": "invalid JSON: " + err.Error()})
+				mu.Unlock()
+				return
+			}
+
+			go saveHealthReport(report)
+			mu.Lock()
+			results = append(results, map[string]interface{}{"ip": ip, "data": report})
+			mu.Unlock()
+		}(ip)
+	}
+
+	wg.Wait()
+	return results
+}
+
 func main() {
-	fmt.Print("Enable database logging? ([y/N] Only allow if you're host): ")
+	fmt.Println("")
+	fmt.Print("Enable database logging? (y/N): ")
     var input string
+	
     fmt.Scanln(&input)
     if input == "y" || input == "Y" || input == "yes" || input == "Yes" {
-        enableDB = true
+		enableDB = true
         connectDB()
         defer db.Close()
+		} else {
+			fmt.Println("→ Database Logging Disabled.")
+	}
+	
+	fmt.Println("")
+	fmt.Print("Enable verbose mode? (y/N): ")
+	fmt.Scanln(&input)
+    if input == "y" || input == "Y" || input == "yes" || input == "Yes" {
+        enableLogging = true
     } else {
-        fmt.Println("Database logging disabled.")
+        fmt.Println("→ Information Logging Disabled.")
     }
+
 
 	refreshChecks()
 
@@ -159,6 +221,17 @@ func main() {
 			refreshChecks()
 		}
 	}()
+
+	go func() {
+		subnet := "192.168.2.0/24"
+		port := "8080"
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			discoverAgents(subnet, port)
+		}
+	}()
+
 
 	http.HandleFunc("/metrics", enableCORS(func(w http.ResponseWriter, r *http.Request) {
 		stateLock.RLock()
@@ -254,60 +327,8 @@ func main() {
 			port = "8080"
 		}
 
-		ips, err := expandCIDR(subnet)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+		results := discoverAgents(subnet, port)
 
-		type Device struct {
-			IP   string      `json:"ip"`
-			Data interface{} `json:"data,omitempty"`
-			Err  string      `json:"error,omitempty"`
-		}
-
-		results := []Device{}
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, ip := range ips {
-			wg.Add(1)
-			go func(ip string) {
-				defer wg.Done()
-				url := fmt.Sprintf("http://%s:%s/metrics", ip, port)
-				client := http.Client{ Timeout: 2 * time.Second }
-				resp, err := client.Get(url)
-				if err != nil {
-					mu.Lock()
-					results = append(results, Device{IP: ip, Err: err.Error()})
-					mu.Unlock()
-					return
-				}
-				defer resp.Body.Close()
-				body, _ := ioutil.ReadAll(resp.Body)
-
-				var report HealthReport
-				if err := json.Unmarshal(body, &report); err != nil {
-					mu.Lock()
-					results = append(results, Device{IP: ip, Err: "invalid JSON: " + err.Error()})
-					mu.Unlock()
-					return
-				}
-
-				// log.Println(report)
-
-				go saveHealthReport(report)
-				
-				var data interface{}
-				json.Unmarshal(body, &data)
-
-				mu.Lock()
-				results = append(results, Device{IP: ip, Data: data})
-				mu.Unlock()
-			}(ip)
-		}
-
-		wg.Wait()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"devices": results,
@@ -468,7 +489,9 @@ func saveHealthReport(report HealthReport) {
 }
 
 func refreshChecks() {
-	log.Println("refresh executed!")
+	if enableLogging {
+		log.Println("Updated Metrics Data!")
+	}
 	var checks []health.CheckResult
 
 	hostname, _ := os.Hostname()
