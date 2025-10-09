@@ -480,8 +480,13 @@ func main() {
 			return
 		}
 
-		// Execute the command
-		cmd := exec.Command("powershell", "-Command", req.Command)
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command("powershell", "-Command", req.Command)
+		} else {
+			cmd = exec.Command("sh", "-c", req.Command)
+		}
+
 		var out bytes.Buffer
 		var stderr bytes.Buffer
 		cmd.Stdout = &out
